@@ -67,4 +67,11 @@ export const expensesAPI = {
   destroy: (expenseId) => client.delete(`/expenses/${expenseId}`),
 };
 
+export const notificationsAPI = {
+  list: () => client.get('/notifications'),
+  unreadCount: () => client.get('/notifications/unread-count'),
+  markAsRead: (id) => client.post(`/notifications/${id}/read`),
+  markAllAsRead: () => client.post('/notifications/read-all'),
+};
+
 export default client;

@@ -14,7 +14,8 @@
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/icon.png"
       },
-      "package": "com.anonymous.kharchpani"
+      "package": "com.anonymous.kharchpani",
+      "googleServicesFile": "./google-services.json"
     },
     "splash": {
       "image": "./assets/icon.png",
@@ -23,6 +24,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
+    ]
   }
 }

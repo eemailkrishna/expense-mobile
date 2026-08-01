@@ -24,8 +24,19 @@ export default function AddExpenseScreen({ route, navigation }) {
     if (!input.trim()) return 0;
     try {
       const sanitized = input.replace(/×/g, '*').replace(/÷/g, '/');
-      const result = Function('"use strict"; return (' + sanitized + ')')();
-      return isNaN(result) ? 0 : result;
+      const tokens = sanitized.match(/(\d+\.?\d*|[+\-*/])/g) || [];
+      if (tokens.length === 0) return 0;
+      let total = parseFloat(tokens[0]);
+      for (let i = 1; i < tokens.length; i += 2) {
+        const op = tokens[i];
+        const num = parseFloat(tokens[i + 1]);
+        if (num === undefined) return total;
+        if (op === '+') total += num;
+        else if (op === '-') total -= num;
+        else if (op === '*') total *= num;
+        else if (op === '/') total /= num;
+      }
+      return isNaN(total) ? 0 : total;
     } catch {
       return 0;
     }
@@ -80,7 +91,7 @@ export default function AddExpenseScreen({ route, navigation }) {
         />
         {amountInput.trim() ? (
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>= Total:</Text>
+            <Text style={styles.totalLabel}>Total =</Text>
             <Text style={styles.totalValue}>₹{totalAmount.toFixed(2)}</Text>
           </View>
         ) : null}

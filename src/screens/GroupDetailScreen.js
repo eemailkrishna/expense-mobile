@@ -139,6 +139,11 @@ export default function GroupDetailScreen({ route, navigation }) {
           <Text style={styles.deleteButtonText}>Delete Group</Text>
         </TouchableOpacity>
       ) : null}
+      {isAdmin ? (
+        <TouchableOpacity style={styles.logsButton} onPress={() => navigation.navigate('NotificationLogs', { groupId })}>
+          <Text style={styles.logsButtonText}>Notification Logs</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Members & Summary */}
       <View style={styles.section}>
@@ -286,6 +291,8 @@ const styles = StyleSheet.create({
   closeLinkText: { color: colors.warning, fontSize: 14, fontWeight: '600' },
   deleteButton: { backgroundColor: colors.danger, marginHorizontal: 16, padding: 14, borderRadius: 8, alignItems: 'center' },
   deleteButtonText: { color: colors.white, fontSize: 16, fontWeight: '600' },
+  logsButton: { backgroundColor: colors.primary, marginHorizontal: 16, padding: 14, borderRadius: 8, alignItems: 'center', marginBottom: 8 },
+  logsButtonText: { color: colors.white, fontSize: 16, fontWeight: '600' },
   section: { margin: 16, marginTop: 0 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
