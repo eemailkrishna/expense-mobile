@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,15 +10,49 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { expensesAPI } from '../api/client';
+import { expensesAPI, groupsAPI } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 
 export default function AddExpenseScreen({ route, navigation }) {
-  const { groupId } = route.params;
-  const [title, setTitle] = useState('');
-  const [amountInput, setAmountInput] = useState('');
-  const [note, setNote] = useState('');
+  const { groupId, expense } = route.params || {};
+  const { user } = useAuth();
+  const isEditing = !!expense;
+  const payerId = user?.id;
+  const [title, setTitle] = useState(expense?.title || '');
+  const [amountInput, setAmountInput] = useState(expense ? String(parseFloat(expense.amount)) : '');
+  const [note, setNote] = useState(expense?.note || '');
   const [loading, setLoading] = useState(false);
+  const [members, setMembers] = useState(route.params?.members || []);
+  const [selectedShares, setSelectedShares] = useState([]);
+  const [loadingMembers, setLoadingMembers] = useState(members.length === 0);
+
+  navigation.setOptions({ title: isEditing ? 'Edit Expense' : 'Add Expense' });
+
+  useEffect(() => {
+    const initialFrom = (list) => (isEditing ? (expense?.shares?.map((s) => s.id) || []) : list.map((m) => m.id));
+    if (members.length > 0) {
+      setSelectedShares(initialFrom(members));
+      return;
+    }
+    (async () => {
+      try {
+        const res = await groupsAPI.members(groupId);
+        const fetched = res.data || [];
+        setMembers(fetched);
+        setSelectedShares(initialFrom(fetched));
+      } catch (e) {
+        Alert.alert('Error', 'Failed to load members');
+      } finally {
+        setLoadingMembers(false);
+      }
+    })();
+  }, []);
+
+  const toggleShare = (id) => {
+    if (id === payerId) return;
+    setSelectedShares((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   const calculateTotal = (input) => {
     if (!input.trim()) return 0;
@@ -55,10 +89,16 @@ export default function AddExpenseScreen({ route, navigation }) {
     }
     setLoading(true);
     try {
-      await expensesAPI.create(groupId, { title, amount: totalAmount, note });
+      const shares = selectedShares.includes(payerId) ? selectedShares : [...selectedShares, payerId];
+      const payload = { title, amount: totalAmount, note, shared_with: shares };
+      if (isEditing) {
+        await expensesAPI.update(expense.id, payload);
+      } else {
+        await expensesAPI.create(groupId, payload);
+      }
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to add expense');
+      Alert.alert('Error', e.response?.data?.message || (isEditing ? 'Failed to update expense' : 'Failed to add expense'));
     } finally {
       setLoading(false);
     }
@@ -107,6 +147,36 @@ export default function AddExpenseScreen({ route, navigation }) {
           onChangeText={setNote}
         />
 
+        <Text style={styles.label}>Split between</Text>
+        {loadingMembers ? (
+          <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: 8 }} />
+        ) : (
+          <>
+            {members.map((m) => {
+              const selected = selectedShares.includes(m.id);
+              const isPayer = m.id === payerId;
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.memberCheck, selected && styles.memberCheckSelected]}
+                  onPress={() => toggleShare(m.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+                    {selected ? <Text style={styles.checkboxTick}>✓</Text> : null}
+                  </View>
+                  <Text style={styles.memberCheckName}>
+                    {m.name}{isPayer ? ' (You)' : ''}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={styles.splitHint}>
+              Selected {selectedShares.length} of {members.length} members
+            </Text>
+          </>
+        )}
+
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleAdd}
@@ -115,7 +185,7 @@ export default function AddExpenseScreen({ route, navigation }) {
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.buttonText}>Add Expense — ₹{totalAmount.toFixed(2)}</Text>
+            <Text style={styles.buttonText}>{isEditing ? 'Update Expense' : 'Add Expense'} — ₹{totalAmount.toFixed(2)}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -151,6 +221,50 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: 'top',
+  },
+  memberCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  memberCheckSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent + '12',
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: colors.card,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  checkboxTick: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  memberCheckName: {
+    fontSize: 15,
+    color: colors.text,
+  },
+  splitHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 8,
   },
   totalRow: {
     flexDirection: 'row',

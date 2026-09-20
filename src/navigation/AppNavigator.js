@@ -125,7 +125,7 @@ function DashboardStack({ navigation }) {
     >
       <Stack.Screen name="DashboardHome" component={DashboardScreen}
         options={{
-          title: 'Kharch Pani',
+          title: 'Kharcha Pani',
           headerRight: () => <NotificationBell />,
         }}
       />

@@ -63,6 +63,7 @@ export const dashboardAPI = {
 
 export const expensesAPI = {
   create: (groupId, data) => client.post(`/groups/${groupId}/expenses`, data),
+  update: (expenseId, data) => client.put(`/expenses/${expenseId}`, data),
   markPaid: (expenseId) => client.post(`/expenses/${expenseId}/mark-paid`),
   destroy: (expenseId) => client.delete(`/expenses/${expenseId}`),
 };

@@ -14,6 +14,19 @@ import { groupsAPI, expensesAPI } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 
+const formatDate = (value) => {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return '';
+  }
+};
+
 export default function GroupDetailScreen({ route, navigation }) {
   const { groupId } = route.params;
   const { user } = useAuth();
@@ -81,6 +94,10 @@ export default function GroupDetailScreen({ route, navigation }) {
     ]);
   };
 
+  const handleEditExpense = (expense) => {
+    navigation.navigate('AddExpense', { groupId, expense, members });
+  };
+
   const handleDeleteExpense = (expenseId) => {
     Alert.alert('Delete Expense', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
@@ -109,7 +126,7 @@ export default function GroupDetailScreen({ route, navigation }) {
 
   const { group, expenses, user_totals, total_amount } = data;
   const memberCount = group.users?.length || 0;
-  const avgShare = memberCount > 0 ? total_amount / memberCount : 0;
+  const members = group.users || [];
 
   return (
     <ScrollView style={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
@@ -163,8 +180,8 @@ export default function GroupDetailScreen({ route, navigation }) {
           ) : null}
         </TouchableOpacity>
         {membersSectionOpen && user_totals?.map((ut) => {
-          const balance = ut.total_spent - avgShare;
-          const barWidth = total_amount > 0 ? (ut.total_spent / total_amount) * 100 : 0;
+          const balance = (ut.total_spent || 0) - (ut.total_share || 0);
+          const barWidth = total_amount > 0 ? ((ut.total_share || 0) / total_amount) * 100 : 0;
           const isExpanded = expandedMember === ut.user?.id;
           const memberExpenses = expenses?.filter((e) => e.user_id === ut.user?.id) || [];
           return (
@@ -180,10 +197,12 @@ export default function GroupDetailScreen({ route, navigation }) {
                     <Text style={styles.memberName}>{ut.user?.name}</Text>
                   </View>
                   <Text style={[styles.memberBalance, balance >= 0 ? styles.balancePositive : styles.balanceNegative]}>
-                    ₹{ut.total_spent.toFixed(2)}
-                    {' '}({balance >= 0 ? '+' : ''}₹{balance.toFixed(2)})
+                    {balance >= 0 ? '+' : ''}₹{balance.toFixed(2)}
                   </Text>
                 </View>
+                <Text style={styles.memberStats}>
+                  Paid ₹{(ut.total_spent || 0).toFixed(2)} · Share ₹{(ut.total_share || 0).toFixed(2)}
+                </Text>
               </TouchableOpacity>
               {isExpanded && (
                 <View style={styles.memberExpanded}>
@@ -196,7 +215,10 @@ export default function GroupDetailScreen({ route, navigation }) {
                   ) : (
                     memberExpenses.map((exp) => (
                       <View key={exp.id} style={styles.memberExpenseRow}>
-                        <Text style={styles.memberExpenseTitle}>{exp.title}</Text>
+                        <View style={styles.memberExpenseLeft}>
+                          <Text style={styles.memberExpenseTitle}>{exp.title}</Text>
+                          <Text style={styles.memberExpenseDate}>{formatDate(exp.created_at)}</Text>
+                        </View>
                         <Text style={styles.memberExpenseAmount}>₹{parseFloat(exp.amount).toFixed(2)}</Text>
                       </View>
                     ))
@@ -214,7 +236,7 @@ export default function GroupDetailScreen({ route, navigation }) {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Expenses</Text>
           {!group.is_closed ? (
-            <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddExpense', { groupId })}>
+            <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddExpense', { groupId, members })}>
               <Text style={styles.addButtonText}>+ Add</Text>
             </TouchableOpacity>
           ) : null}
@@ -229,16 +251,27 @@ export default function GroupDetailScreen({ route, navigation }) {
                 <Text style={styles.expenseAmount}>₹{parseFloat(item.amount).toFixed(2)}</Text>
               </View>
               {item.note ? <Text style={styles.expenseNote}>{item.note}</Text> : null}
+              {item.shares && item.shares.length > 0 && item.shares.length < memberCount ? (
+                <Text style={styles.splitText}>Split between {item.shares.length} members</Text>
+              ) : null}
               <View style={styles.expenseFooter}>
-                <Text style={styles.expenseUser}>by {item.user?.name || 'Unknown'}</Text>
+                <View>
+                  <Text style={styles.expenseUser}>by {item.user?.name || 'Unknown'}</Text>
+                  <Text style={styles.expenseDate}>Added on {formatDate(item.created_at)}</Text>
+                </View>
                 <View style={styles.expenseActions}>
                   {item.is_paid ? (
                     <View style={styles.paidBadge}><Text style={styles.paidText}>Paid</Text></View>
                   ) : null}
-                  {isAdmin ? (
-                    <TouchableOpacity onPress={() => handleDeleteExpense(item.id)}>
-                      <Text style={styles.deleteText}>Delete</Text>
-                    </TouchableOpacity>
+                  {item.user_id === user?.id || isAdmin ? (
+                    <>
+                      <TouchableOpacity onPress={() => handleEditExpense(item)}>
+                        <Text style={styles.editText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDeleteExpense(item.id)}>
+                        <Text style={styles.deleteText}>Delete</Text>
+                      </TouchableOpacity>
+                    </>
                   ) : null}
                 </View>
               </View>
@@ -326,6 +359,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   memberName: { fontSize: 15, fontWeight: '600', color: colors.text },
+  memberStats: { fontSize: 12, color: colors.textSecondary, marginTop: 4, marginLeft: 20 },
   memberBalance: { fontSize: 14, fontWeight: '700' },
   memberExpanded: {
     backgroundColor: colors.background,
@@ -341,15 +375,23 @@ const styles = StyleSheet.create({
   memberExpenseRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 6,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  memberExpenseLeft: {
+    flex: 1,
+  },
   memberExpenseTitle: {
     fontSize: 14,
     color: colors.text,
-    flex: 1,
+  },
+  memberExpenseDate: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 1,
   },
   memberExpenseAmount: {
     fontSize: 14,
@@ -392,11 +434,14 @@ const styles = StyleSheet.create({
   expenseTitle: { fontSize: 16, fontWeight: '600', color: colors.text, flex: 1 },
   expenseAmount: { fontSize: 16, fontWeight: '700', color: colors.danger },
   expenseNote: { fontSize: 13, color: '#888', marginTop: 4 },
+  splitText: { fontSize: 12, color: colors.accent, marginTop: 4, fontWeight: '600' },
   expenseFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   expenseUser: { fontSize: 13, color: colors.textSecondary },
+  expenseDate: { fontSize: 12, color: '#999', marginTop: 2 },
   expenseActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   paidBadge: { backgroundColor: colors.success, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   paidText: { color: colors.white, fontSize: 12, fontWeight: '600' },
+  editText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
   deleteText: { color: colors.danger, fontSize: 13, fontWeight: '600' },
   noExpenses: { textAlign: 'center', color: colors.textSecondary, marginTop: 20 },
 });
