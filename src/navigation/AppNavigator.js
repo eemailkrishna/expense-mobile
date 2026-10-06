@@ -3,7 +3,7 @@ import { ActivityIndicator, View, Image, Text, TouchableOpacity, StyleSheet } fr
 import { NavigationContainer, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import Icon from 'react-native-vector-icons/Ionicons';
+import { Ionicons } from '@react-native-vector-icons/ionicons';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 import { notificationsAPI } from '../api/client';
@@ -11,6 +11,7 @@ import useFirebaseMessaging from '../hooks/useFirebaseMessaging';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import CreateGroupScreen from '../screens/CreateGroupScreen';
@@ -49,7 +50,7 @@ function NotificationBell() {
       style={{ marginRight: 12, position: 'relative', padding: 4 }}
       onPress={() => navigation.navigate('Notifications')}
     >
-      <Icon name="notifications-outline" size={24} color={colors.textLight} />
+      <Ionicons name="notifications-outline" size={24} color={colors.textLight} />
       {count > 0 && (
         <View style={bellStyles.badge}>
           <Text style={bellStyles.badgeText}>{count > 9 ? '9+' : count}</Text>
@@ -199,6 +200,7 @@ export default function AppNavigator() {
           <>
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ headerShown: false }} />
           </>
         )}
       </Stack.Navigator>

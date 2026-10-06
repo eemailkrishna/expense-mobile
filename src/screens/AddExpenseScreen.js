@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { expensesAPI, groupsAPI } from '../api/client';
+import { loadSharesMap, saveExpenseShares } from '../services/expenseShares';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 
@@ -27,12 +28,31 @@ export default function AddExpenseScreen({ route, navigation }) {
   const [selectedShares, setSelectedShares] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(members.length === 0);
 
-  navigation.setOptions({ title: isEditing ? 'Edit Expense' : 'Add Expense' });
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: isEditing ? 'Edit Expense' : 'Add Expense' });
+  }, [navigation, isEditing]);
 
   useEffect(() => {
-    const initialFrom = (list) => (isEditing ? (expense?.shares?.map((s) => s.id) || []) : list.map((m) => m.id));
+    const applyShares = (list) => {
+      if (!isEditing) {
+        setSelectedShares(list.map((m) => m.id));
+        return;
+      }
+      (async () => {
+        let ids =
+          Array.isArray(expense?.shares) && expense.shares.length
+            ? expense.shares.map((s) => (typeof s === 'object' ? s.id : s))
+            : null;
+        if (!ids) {
+          const map = await loadSharesMap();
+          ids = map[expense?.id] || null;
+        }
+        setSelectedShares(ids && ids.length ? ids : list.map((m) => m.id));
+      })();
+    };
+
     if (members.length > 0) {
-      setSelectedShares(initialFrom(members));
+      applyShares(members);
       return;
     }
     (async () => {
@@ -40,7 +60,7 @@ export default function AddExpenseScreen({ route, navigation }) {
         const res = await groupsAPI.members(groupId);
         const fetched = res.data || [];
         setMembers(fetched);
-        setSelectedShares(initialFrom(fetched));
+        applyShares(fetched);
       } catch (e) {
         Alert.alert('Error', 'Failed to load members');
       } finally {
@@ -60,16 +80,34 @@ export default function AddExpenseScreen({ route, navigation }) {
       const sanitized = input.replace(/×/g, '*').replace(/÷/g, '/');
       const tokens = sanitized.match(/(\d+\.?\d*|[+\-*/])/g) || [];
       if (tokens.length === 0) return 0;
-      let total = parseFloat(tokens[0]);
+
+      let values = [];
+      let ops = [];
+
+      let current = parseFloat(tokens[0]);
+      values.push(current);
+
       for (let i = 1; i < tokens.length; i += 2) {
         const op = tokens[i];
         const num = parseFloat(tokens[i + 1]);
-        if (num === undefined) return total;
-        if (op === '+') total += num;
-        else if (op === '-') total -= num;
-        else if (op === '*') total *= num;
-        else if (op === '/') total /= num;
+        if (num === undefined) break;
+
+        if (op === '*' || op === '/') {
+          const last = values.pop();
+          if (op === '*') values.push(last * num);
+          else values.push(last / num);
+        } else {
+          ops.push(op);
+          values.push(num);
+        }
       }
+
+      let total = values[0];
+      for (let i = 0; i < ops.length; i++) {
+        if (ops[i] === '+') total += values[i + 1];
+        else if (ops[i] === '-') total -= values[i + 1];
+      }
+
       return isNaN(total) ? 0 : total;
     } catch {
       return 0;
@@ -89,13 +127,24 @@ export default function AddExpenseScreen({ route, navigation }) {
     }
     setLoading(true);
     try {
-      const shares = selectedShares.includes(payerId) ? selectedShares : [...selectedShares, payerId];
+      const allIds = members.map((m) => m.id);
+      const nobodyElseSelected =
+        selectedShares.length === 0 ||
+        (selectedShares.length === 1 && selectedShares.includes(payerId));
+      const shares = nobodyElseSelected
+        ? allIds
+        : selectedShares.includes(payerId)
+        ? selectedShares
+        : [...selectedShares, payerId];
       const payload = { title, amount: totalAmount, note, shared_with: shares };
+      let expId = expense?.id;
       if (isEditing) {
         await expensesAPI.update(expense.id, payload);
       } else {
-        await expensesAPI.create(groupId, payload);
+        const res = await expensesAPI.create(groupId, payload);
+        expId = res.data?.expense?.id ?? res.data?.id;
       }
+      await saveExpenseShares(expId, shares);
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || (isEditing ? 'Failed to update expense' : 'Failed to add expense'));

@@ -1,10 +1,10 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DEV_URL = 'http://10.0.2.2:8000/api';
 const PROD_URL = 'https://antrikshcomputers.co.in/expense/api';
+const LOCAL_URL = 'http://10.0.2.2:8010/api';
 
-const API_BASE_URL = __DEV__ ? DEV_URL : PROD_URL;
+const API_BASE_URL = LOCAL_URL;
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -38,6 +38,8 @@ export const authAPI = {
   login: (data) => client.post('/login', data),
   logout: () => client.post('/logout'),
   user: () => client.get('/user'),
+  forgotPassword: (data) => client.post('/forgot-password', data),
+  resetPassword: (data) => client.post('/forgot-password/reset', data),
 };
 
 export const groupsAPI = {

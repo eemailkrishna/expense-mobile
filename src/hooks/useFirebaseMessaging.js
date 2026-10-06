@@ -12,6 +12,7 @@ import {
   getInitialNotification,
   onNotificationOpenedApp,
   handleNotificationData,
+  initializeBackgroundMessageHandler,
 } from '../services/notification';
 
 export default function useFirebaseMessaging(navigation) {
@@ -26,6 +27,8 @@ export default function useFirebaseMessaging(navigation) {
       if (!hasPermission) {
         return;
       }
+
+      initializeBackgroundMessageHandler();
 
       onBackgroundMessage(async (remoteMessage) => {
         const navData = handleNotificationData(remoteMessage);

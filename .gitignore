@@ -43,3 +43,7 @@ GoogleService-Info.plist
 # generated native folders
 /ios
 /android
+
+# release artifacts
+*.apk
+*.aab

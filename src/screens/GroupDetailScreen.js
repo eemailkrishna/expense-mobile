@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { groupsAPI, expensesAPI } from '../api/client';
+import { loadSharesMap } from '../services/expenseShares';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme/colors';
 
@@ -27,6 +28,9 @@ const formatDate = (value) => {
   }
 };
 
+const fmt = (n) =>
+  `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 export default function GroupDetailScreen({ route, navigation }) {
   const { groupId } = route.params;
   const { user } = useAuth();
@@ -34,11 +38,14 @@ export default function GroupDetailScreen({ route, navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [membersSectionOpen, setMembersSectionOpen] = useState(false);
   const [expandedMember, setExpandedMember] = useState(null);
+  const [sharesMap, setSharesMap] = useState({});
 
   const fetchData = async () => {
     try {
       const res = await groupsAPI.show(groupId);
       setData(res.data);
+      const map = await loadSharesMap();
+      setSharesMap(map);
     } catch (e) {
       Alert.alert('Error', 'Failed to load group details');
     }
@@ -125,8 +132,69 @@ export default function GroupDetailScreen({ route, navigation }) {
   }
 
   const { group, expenses, user_totals, total_amount } = data;
-  const memberCount = group.users?.length || 0;
+  const memberCount = group.users?.length || user_totals?.length || 0;
   const members = group.users || [];
+
+  const spentById = {};
+  (user_totals || []).forEach((ut) => {
+    spentById[ut.user?.id] = ut.total_spent || 0;
+  });
+
+  const memberList = [];
+  const seenIds = new Set();
+  members.forEach((m) => { memberList.push(m); seenIds.add(m.id); });
+  (user_totals || []).forEach((ut) => {
+    if (ut.user && !seenIds.has(ut.user.id)) memberList.push(ut.user);
+  });
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  const allIds = memberList.map((m) => m.id);
+  const shareById = {};
+  allIds.forEach((id) => {
+    shareById[id] = 0;
+  });
+  (expenses || []).forEach((exp) => {
+    let ids = sharesMap[exp.id];
+    if (!ids && Array.isArray(exp.shares) && exp.shares.length) {
+      ids = exp.shares.map((s) => (typeof s === 'object' ? s.id : s));
+    }
+    if (!ids || !ids.length) ids = allIds;
+    const list = ids.filter((id) => shareById[id] !== undefined);
+    const sharers = list.length ? list : allIds;
+    const per = parseFloat(exp.amount) / sharers.length;
+    sharers.forEach((id) => {
+      shareById[id] += per;
+    });
+  });
+
+  const balances = memberList.map((m) => {
+    const paid = spentById[m.id] || 0;
+    const share = shareById[m.id] || 0;
+    return { id: m.id, name: m.name, paid, share, balance: round2(paid - share) };
+  });
+
+  const transfers = [];
+  {
+    const debtors = balances
+      .filter((b) => b.balance < -0.01)
+      .map((b) => ({ name: b.name, amount: -b.balance }))
+      .sort((a, b) => b.amount - a.amount);
+    const creditors = balances
+      .filter((b) => b.balance > 0.01)
+      .map((b) => ({ name: b.name, amount: b.balance }))
+      .sort((a, b) => b.amount - a.amount);
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const amt = Math.min(debtors[i].amount, creditors[j].amount);
+      transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: round2(amt) });
+      debtors[i].amount = round2(debtors[i].amount - amt);
+      creditors[j].amount = round2(creditors[j].amount - amt);
+      if (debtors[i].amount < 0.01) i++;
+      if (creditors[j].amount < 0.01) j++;
+    }
+  }
 
   return (
     <ScrollView style={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
@@ -179,36 +247,30 @@ export default function GroupDetailScreen({ route, navigation }) {
             </TouchableOpacity>
           ) : null}
         </TouchableOpacity>
-        {membersSectionOpen && user_totals?.map((ut) => {
-          const balance = (ut.total_spent || 0) - (ut.total_share || 0);
-          const barWidth = total_amount > 0 ? ((ut.total_share || 0) / total_amount) * 100 : 0;
-          const isExpanded = expandedMember === ut.user?.id;
-          const memberExpenses = expenses?.filter((e) => e.user_id === ut.user?.id) || [];
+        {membersSectionOpen && balances.map((b) => {
+          const balance = b.balance;
+          const isSettled = Math.abs(balance) < 0.005;
+          const isExpanded = expandedMember === b.id;
+          const memberExpenses = expenses?.filter((e) => e.user_id === b.id) || [];
           return (
-            <View key={ut.user?.id}>
+            <View key={b.id}>
               <TouchableOpacity
                 style={styles.memberRow}
-                onPress={() => setExpandedMember(isExpanded ? null : ut.user?.id)}
+                onPress={() => setExpandedMember(isExpanded ? null : b.id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.memberTop}>
-                  <View style={styles.memberLeft}>
-                    <Text style={styles.expandIcon}>{isExpanded ? '▼' : '▶'}</Text>
-                    <Text style={styles.memberName}>{ut.user?.name}</Text>
+                  <Text numberOfLines={1} style={styles.memberName}>{b.name}</Text>
+                  <View style={styles.memberAmounts}>
+                    <Text style={styles.memberPaidText}>{fmt(b.paid)} </Text>
+                    <Text style={isSettled ? styles.balanceSettled : balance > 0 ? styles.balancePositive : styles.balanceNegative}>
+                      ({isSettled ? 'Settled' : `${balance > 0 ? '+' : '-'}${fmt(Math.abs(balance))}`})
+                    </Text>
                   </View>
-                  <Text style={[styles.memberBalance, balance >= 0 ? styles.balancePositive : styles.balanceNegative]}>
-                    {balance >= 0 ? '+' : ''}₹{balance.toFixed(2)}
-                  </Text>
                 </View>
-                <Text style={styles.memberStats}>
-                  Paid ₹{(ut.total_spent || 0).toFixed(2)} · Share ₹{(ut.total_share || 0).toFixed(2)}
-                </Text>
               </TouchableOpacity>
               {isExpanded && (
                 <View style={styles.memberExpanded}>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${barWidth}%` }, balance >= 0 ? styles.progressPositive : styles.progressNegative]} />
-                  </View>
                   <View style={styles.memberExpenses}>
                   {memberExpenses.length === 0 ? (
                     <Text style={styles.noMemberExpenses}>No expenses</Text>
@@ -229,6 +291,31 @@ export default function GroupDetailScreen({ route, navigation }) {
             </View>
           );
         })}
+        {membersSectionOpen && (
+          <View style={styles.settlementCard}>
+            <Text style={styles.settlementTitle}>Who Pays Whom</Text>
+            {transfers.length === 0 ? (
+              <Text style={styles.settledText}>✓ All settled up — kisi ko kuch dena nahi hai</Text>
+            ) : (
+              transfers.map((t, idx) => (
+                <View key={idx} style={styles.transferRow}>
+                  <View style={styles.transferSide}>
+                    <Text numberOfLines={1} style={styles.transferName}>{t.from}</Text>
+                    <Text style={[styles.transferTag, styles.oweTag]}>Dena hai</Text>
+                  </View>
+                  <View style={styles.transferCenter}>
+                    <Text style={styles.transferArrow}>pays</Text>
+                    <Text style={styles.transferAmount}>₹{t.amount.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.transferSide, styles.transferSideRight]}>
+                    <Text numberOfLines={1} style={styles.transferName}>{t.to}</Text>
+                    <Text style={[styles.transferTag, styles.getTag]}>Lena hai</Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
       </View>
 
       {/* Expenses */}
@@ -348,19 +435,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  memberLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
+  memberName: { fontSize: 15, fontWeight: '600', color: colors.text, flex: 1, marginRight: 8 },
   expandIcon: {
     fontSize: 12,
     color: colors.textSecondary,
     marginRight: 8,
   },
-  memberName: { fontSize: 15, fontWeight: '600', color: colors.text },
-  memberStats: { fontSize: 12, color: colors.textSecondary, marginTop: 4, marginLeft: 20 },
-  memberBalance: { fontSize: 14, fontWeight: '700' },
+  memberAmounts: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  memberPaidText: { fontSize: 14, fontWeight: '700', color: colors.text },
   memberExpanded: {
     backgroundColor: colors.background,
     borderRadius: 8,
@@ -406,19 +492,68 @@ const styles = StyleSheet.create({
   },
   balancePositive: { color: colors.success },
   balanceNegative: { color: colors.danger },
-  progressBar: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
-    marginTop: 8,
-    overflow: 'hidden',
+  balanceSettled: { color: colors.textSecondary },
+  settlementCard: {
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    padding: 14,
+    marginTop: 4,
   },
-  progressFill: {
-    height: 6,
-    borderRadius: 3,
+  settlementTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 10,
   },
-  progressPositive: { backgroundColor: colors.success },
-  progressNegative: { backgroundColor: colors.danger },
+  settledText: {
+    fontSize: 14,
+    color: colors.success,
+    fontWeight: '600',
+  },
+  transferRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  transferSide: {
+    flex: 1,
+  },
+  transferSideRight: {
+    alignItems: 'flex-end',
+  },
+  transferName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  transferTag: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  oweTag: {
+    color: colors.danger,
+  },
+  getTag: {
+    color: colors.success,
+  },
+  transferCenter: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  transferArrow: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  transferAmount: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
   expenseCard: {
     backgroundColor: colors.card,
     padding: 14,

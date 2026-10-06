@@ -2,11 +2,14 @@ import { getMessaging, onMessage, onNotificationOpenedApp as fcmOnNotificationOp
 
 let backgroundCallback = null;
 
-setBackgroundMessageHandler(getMessaging(), async (remoteMessage) => {
-  if (backgroundCallback) {
-    backgroundCallback(remoteMessage);
-  }
-});
+export function initializeBackgroundMessageHandler() {
+  const messaging = getMessaging();
+  setBackgroundMessageHandler(messaging, async (remoteMessage) => {
+    if (backgroundCallback) {
+      backgroundCallback(remoteMessage);
+    }
+  });
+}
 
 export function onForegroundMessage(callback) {
   return onMessage(getMessaging(), async (remoteMessage) => {
